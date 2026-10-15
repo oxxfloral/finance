@@ -23,6 +23,7 @@ var SHEETS = {
 var MATCH_DAYS = 3;          // 카드/계좌 지출과 매입 기록의 날짜 허용 오차
 var SALES_BEFORE_DAYS = 60;  // 입금일 기준, 주문일이 이만큼 이전이어도 같은 매출로 봄
 var SALES_AFTER_DAYS = 30;   // 입금일 기준, 주문일이 이만큼 이후여도 같은 매출로 봄 (선입금)
+var NON_EXPENSE = ['개인', '카드대금']; // 사업 경비도 매출도 아닌 돈의 이동 (본인 계좌 이체, 카드값 결제)
 
 // ---------------------------------------------------------------------------
 // 메뉴
@@ -487,7 +488,10 @@ function applyRules_(ss) {
   });
 }
 
-/** 통장내역에서 분류가 '현금인출'인 출금을 현금출납 탭에 'ATM 인출'로 옮긴다. */
+/**
+ * 통장내역의 현금 이동을 현금출납 탭에 옮긴다.
+ * '현금인출' 출금은 'ATM 인출'(들어온 금액), '현금입금' 입금은 '통장 입금'(나간 금액).
+ */
 function syncCashWithdrawals_(ss) {
   var bank = table_(ss.getSheetByName(SHEETS.bank));
   var cash = table_(ss.getSheetByName(SHEETS.cash));
@@ -496,14 +500,15 @@ function syncCashWithdrawals_(ss) {
   cash.rows.forEach(function (r) { if (r[cash.col['키']]) have[r[cash.col['키']]] = true; });
   var add = [];
   bank.rows.forEach(function (r) {
-    if (r[bank.col['분류']] !== '현금인출') return;
+    var cat = r[bank.col['분류']];
     var key = r[bank.col['키']];
-    var amount = toNumber(r[bank.col['출금']]);
-    if (!key || !amount || have[key]) return;
-    add.push({
-      '날짜': r[bank.col['거래일자']], '구분': 'ATM 인출', '들어온 금액': amount,
-      '메모': '통장내역 자동 (' + (r[bank.col['적요']] || r[bank.col['내용']]) + ')', '키': key,
-    });
+    if (!key || have[key]) return;
+    var memo = '통장내역 자동 (' + (r[bank.col['적요']] || r[bank.col['내용']]) + ')';
+    if (cat === '현금인출' && toNumber(r[bank.col['출금']])) {
+      add.push({ '날짜': r[bank.col['거래일자']], '구분': 'ATM 인출', '들어온 금액': toNumber(r[bank.col['출금']]), '메모': memo, '키': key });
+    } else if (cat === '현금입금' && toNumber(r[bank.col['입금']])) {
+      add.push({ '날짜': r[bank.col['거래일자']], '구분': '통장 입금', '나간 금액': toNumber(r[bank.col['입금']]), '메모': memo, '키': key });
+    }
   });
   appendRows_(cash, add, '날짜');
 }
@@ -559,6 +564,7 @@ function reconcile_(ss) {
     var cat = r[card.col['분류']];
     var amount = toNumber(r[card.col['이용금액']]);
     if (!cat) return '분류 필요';
+    if (NON_EXPENSE.indexOf(cat) >= 0) return '-';
     if (cat !== '매입') return '경비';
     if (take(purCard, d, amount)) return '매입 있음';
     if (cardDay[ymd(d)] && cardDay[ymd(d)] === purCardByDay[ymd(d)]) return '일 합계 일치';
@@ -592,6 +598,8 @@ function reconcile_(ss) {
     if (!d) return '';
     var cat = r[bank.col['분류']];
     var inAmt = toNumber(r[bank.col['입금']]), outAmt = toNumber(r[bank.col['출금']]);
+    if (NON_EXPENSE.indexOf(cat) >= 0) return '-';
+    if (cat === '현금입금') return '현금출납 반영';
     if (inAmt) {
       if (cat && cat !== '매출입금') return '-';
       return takeSale(d, inAmt) ? '매출 있음' : '매출 확인 필요';
