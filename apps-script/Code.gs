@@ -64,6 +64,9 @@ function doPost(e) {
   }
   var token = PropertiesService.getScriptProperties().getProperty('SMS_TOKEN');
   if (!token || body.token !== token) {
+    // 원문은 남기지 않고, 요청이 도착했다는 사실만 기록해 단축어 설정 문제를 찾기 쉽게 한다.
+    var log = SpreadsheetApp.getActive().getSheetByName(SHEETS.sms);
+    if (log) log.appendRow([new Date(), '토큰 불일치', '단축어의 token 값을 문자 연동 설정 보기의 토큰과 똑같이 맞추세요.']);
     return json_({ ok: false, error: 'token' });
   }
   var lock = LockService.getScriptLock();
@@ -74,6 +77,11 @@ function doPost(e) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** 브라우저에서 웹앱 주소를 열었을 때 연결 상태를 보여준다. */
+function doGet() {
+  return ContentService.createTextOutput('OXX 장부 웹앱 연결됨');
 }
 
 function handleSms_(ss, text, now) {
