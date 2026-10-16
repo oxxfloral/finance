@@ -23,6 +23,8 @@ var SHEETS = {
 var MATCH_DAYS = 3;          // 카드/계좌 지출과 매입 기록의 날짜 허용 오차
 var SALES_BEFORE_DAYS = 60;  // 입금일 기준, 주문일이 이만큼 이전이어도 같은 매출로 봄
 var SALES_AFTER_DAYS = 30;   // 입금일 기준, 주문일이 이만큼 이후여도 같은 매출로 봄 (선입금)
+// 웹앱(문자 수신)으로 실행될 때 열 스프레드시트. 시트를 복사해 쓰면 이 값을 새 시트 ID로 바꾼다.
+var SPREADSHEET_ID = '1KymTgEIhU54Z1uBZt8Z5_VfG8zfz8xCEtWXbLbmwdpM';
 var NON_EXPENSE = ['개인', '카드대금']; // 사업 경비도 매출도 아닌 돈의 이동 (본인 계좌 이체, 카드값 결제)
 
 // ---------------------------------------------------------------------------
@@ -65,18 +67,22 @@ function doPost(e) {
   var token = PropertiesService.getScriptProperties().getProperty('SMS_TOKEN');
   if (!token || body.token !== token) {
     // 원문은 남기지 않고, 요청이 도착했다는 사실만 기록해 단축어 설정 문제를 찾기 쉽게 한다.
-    var log = SpreadsheetApp.getActive().getSheetByName(SHEETS.sms);
+    var log = book_().getSheetByName(SHEETS.sms);
     if (log) log.appendRow([new Date(), '토큰 불일치', '단축어의 token 값을 문자 연동 설정 보기의 토큰과 똑같이 맞추세요.']);
     return json_({ ok: false, error: 'token' });
   }
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    var result = handleSms_(SpreadsheetApp.getActive(), String(body.text || ''), new Date());
+    var result = handleSms_(book_(), String(body.text || ''), new Date());
     return json_({ ok: true, result: result });
   } finally {
     lock.releaseLock();
   }
+}
+
+function book_() {
+  return SpreadsheetApp.getActive() || SpreadsheetApp.openById(SPREADSHEET_ID);
 }
 
 /** 브라우저에서 웹앱 주소를 열었을 때 연결 상태를 보여준다. */
