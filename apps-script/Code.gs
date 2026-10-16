@@ -4,7 +4,7 @@
  * - 신한은행 입출금 문자, 우리카드 승인 문자를 웹앱(doPost)으로 받아 통장내역/카드내역에 기록
  * - 신한 거래내역 엑셀, 우리카드 이용대금명세서 엑셀을 '가져오기' 탭에 붙여넣으면 반영
  * - 분류규칙으로 지출을 자동 분류하고, 매출/매입/현금출납 탭과 대조해 '장부 확인' 칸을 채움
- * - 통장에서 현금을 뽑으면 현금출납 탭에 자동으로 'ATM 인출' 기록
+ * - 통장에서 현금을 뽑으면 현금출납 탭에 'ATM 인출', 매입 탭 그 날짜 맨 위에 '현금 인출 (ATM)' 행을 자동 기록
  *
  * 열은 머리글 이름으로 찾으므로 열 순서를 바꿔도 동작한다.
  */
@@ -367,6 +367,27 @@ function daysBetween(a, b) {
   return Math.round((b - a) / 86400000);
 }
 
+var ATM_LABEL = '현금 인출 (ATM)';
+
+/**
+ * 매입 탭에서 현금 인출 행을 넣을 위치(데이터 행 0부터).
+ * rows: [{date: 'yyyy-mm-dd' 또는 '', atm: bool}]
+ * 같은 날짜 묶음의 맨 위(이미 있는 인출 행 바로 아래). 그 날짜가 없으면 더 이른 날짜의 마지막 행 다음.
+ */
+function withdrawalInsertIndex(rows, date) {
+  var lastBefore = -1;
+  for (var i = 0; i < rows.length; i++) {
+    var d = rows[i].date;
+    if (!d) continue;
+    if (d === date) {
+      while (i < rows.length && rows[i].date === date && rows[i].atm) i++;
+      return i;
+    }
+    if (d < date) lastBefore = i;
+  }
+  return lastBefore + 1;
+}
+
 // ---------------------------------------------------------------------------
 // 시트 입출력
 // ---------------------------------------------------------------------------
@@ -559,6 +580,44 @@ function syncCashWithdrawals_(ss) {
     }
   });
   appendRows_(cash, add, '날짜');
+  syncPurchaseWithdrawals_(ss, bank);
+}
+
+/**
+ * 현금인출을 매입 탭 그 날짜의 맨 위에 '현금 인출 (ATM)' 행으로 넣는다.
+ * 그 아래에 꽃시장 현금 매입을 적으면 남은 현금·재입금 대조는 시트 수식(P:R열)이 계산한다.
+ */
+function syncPurchaseWithdrawals_(ss, bank) {
+  var pur = table_(ss.getSheetByName(SHEETS.purchase));
+  if (!('인출액' in pur.col) || !('키' in pur.col)) return;
+  var have = {};
+  pur.rows.forEach(function (r) { if (r[pur.col['키']]) have[r[pur.col['키']]] = true; });
+  var todo = [];
+  bank.rows.forEach(function (r) {
+    var key = r[bank.col['키']];
+    var d = asDate_(r[bank.col['거래일자']]);
+    if (!key || have[key] || !d || r[bank.col['분류']] !== '현금인출' || !toNumber(r[bank.col['출금']])) return;
+    todo.push({ date: d, time: String(r[bank.col['거래시간']]).replace(/^'/, ''), amount: toNumber(r[bank.col['출금']]), key: key });
+  });
+  if (!todo.length) return;
+
+  var last = lastDataRow_(pur, '날짜') - 1; // 데이터 행 수
+  var rows = pur.rows.slice(0, last).map(function (r) {
+    var d = asDate_(r[pur.col['날짜']]);
+    return { date: d ? ymd(d) : '', atm: r[pur.col['매입처']] === ATM_LABEL };
+  });
+  todo.forEach(function (w) {
+    var idx = withdrawalInsertIndex(rows, ymd(w.date));
+    var rowNum = idx + 2;
+    if (idx < rows.length) pur.sheet.insertRowBefore(rowNum);
+    var put = function (name, v) { pur.sheet.getRange(rowNum, pur.col[name] + 1).setValue(v); };
+    put('날짜', w.date);
+    put('매입처', ATM_LABEL);
+    if ('메모' in pur.col) put('메모', '통장 자동 ' + w.time);
+    put('인출액', w.amount);
+    put('키', w.key);
+    rows.splice(idx, 0, { date: ymd(w.date), atm: true });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -705,5 +764,6 @@ if (typeof module !== 'undefined') {
     parseShinhanExport: parseShinhanExport, parseWooriStatement: parseWooriStatement,
     bankKey: bankKey, cardKey: cardKey, matchByKey: matchByKey, classify: classify,
     matchPurchase: matchPurchase, vendorMatches: vendorMatches,
+    withdrawalInsertIndex: withdrawalInsertIndex,
   };
 }

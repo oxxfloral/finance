@@ -1,4 +1,4 @@
-// 실행: node --test tests/
+// 실행: node --test tests/parsers.test.js
 // 문자/엑셀 예시는 실제 형식을 따르되 이름과 계좌는 가짜 값이다.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -124,4 +124,20 @@ test('매입 대조: 매입처 이름이 맞는 줄을 먼저, 원래 칸을 먼
   assert.strictEqual(lib.matchPurchase(pays, d(5, 19), 60000, '계좌이체', 3, '김철수'), null);
   assert.ok(lib.vendorMatches('현대데코', '(주)현대데코'));
   assert.ok(!lib.vendorMatches('', '아무거나'));
+});
+
+test('현금 인출 행은 그 날짜 묶음의 맨 위에', () => {
+  const rows = [
+    { date: '2026-09-07', atm: false },
+    { date: '2026-09-08', atm: true },
+    { date: '2026-09-08', atm: false },
+    { date: '2026-09-11', atm: false },
+    { date: '2026-09-10', atm: false }, // 순서가 뒤바뀐 줄
+    { date: '2026-09-13', atm: false },
+  ];
+  assert.strictEqual(lib.withdrawalInsertIndex(rows, '2026-09-07'), 0);
+  assert.strictEqual(lib.withdrawalInsertIndex(rows, '2026-09-08'), 2); // 이미 있는 인출 행 아래
+  assert.strictEqual(lib.withdrawalInsertIndex(rows, '2026-09-12'), 5); // 날짜 없음 → 더 이른 날짜 마지막 행 다음
+  assert.strictEqual(lib.withdrawalInsertIndex(rows, '2026-10-16'), 6); // 맨 끝
+  assert.strictEqual(lib.withdrawalInsertIndex(rows, '2026-01-01'), 0);
 });
