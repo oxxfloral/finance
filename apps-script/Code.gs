@@ -417,17 +417,20 @@ function lastDataRow_(t, colName) {
 function appendRows_(t, objs, keyCol) {
   if (!objs.length) return;
   var start = lastDataRow_(t, keyCol) + 1;
-  // 쓰는 열까지만 덮어써서 오른쪽의 요약 칸(현금출납 G:H 등)을 건드리지 않는다.
-  var width = 0;
+  // 쓰는 열만 덮어써서 왼쪽의 '월' 수식 열과 오른쪽의 요약 칸(현금출납 H:I 등)을 건드리지 않는다.
+  var first = Infinity, last = -1;
   objs.forEach(function (o) {
-    Object.keys(o).forEach(function (k) { if (k in t.col) width = Math.max(width, t.col[k] + 1); });
+    Object.keys(o).forEach(function (k) {
+      if (k in t.col) { first = Math.min(first, t.col[k]); last = Math.max(last, t.col[k]); }
+    });
   });
+  if (last < 0) return;
   var data = objs.map(function (o) {
-    var row = new Array(width).fill('');
-    Object.keys(o).forEach(function (k) { if (k in t.col) row[t.col[k]] = o[k]; });
+    var row = new Array(last - first + 1).fill('');
+    Object.keys(o).forEach(function (k) { if (k in t.col) row[t.col[k] - first] = o[k]; });
     return row;
   });
-  t.sheet.getRange(start, 1, data.length, width).setValues(data);
+  t.sheet.getRange(start, first + 1, data.length, last - first + 1).setValues(data);
 }
 
 function setColumn_(t, name, values) {
@@ -585,7 +588,7 @@ function syncCashWithdrawals_(ss) {
 
 /**
  * 현금인출을 매입 탭 그 날짜의 맨 위에 '현금 인출 (ATM)' 행으로 넣는다.
- * 그 아래에 꽃시장 현금 매입을 적으면 남은 현금·재입금 대조는 시트 수식(P:R열)이 계산한다.
+ * 그 아래에 꽃시장 현금 매입을 적으면 남은 현금·재입금 대조는 시트 수식(Q:S열)이 계산한다.
  */
 function syncPurchaseWithdrawals_(ss, bank) {
   var pur = table_(ss.getSheetByName(SHEETS.purchase));
