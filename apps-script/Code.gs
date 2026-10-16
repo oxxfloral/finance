@@ -331,22 +331,36 @@ function classify(text, rules) {
 
 var PAY_COLS = ['현금', '카드', '계좌이체'];
 
+/** 매입처 이름이 통장 내용·가맹점명에 들어 있는지 (공백·(주) 무시) */
+function vendorMatches(vendor, text) {
+  var norm = function (x) { return String(x || '').replace(/\(주\)|주식회사|㈜|\s/g, ''); };
+  var v = norm(vendor), t = norm(text);
+  return v.length >= 2 && t.indexOf(v) >= 0;
+}
+
 /**
- * 같은 금액·가까운 날짜(±days)의 매입 결제를 찾아 사용 처리하고 그 칸 이름을 돌려준다.
- * 원래 칸(preferred)을 먼저 찾고, 없으면 다른 칸에서 찾는다. 못 찾으면 ''.
+ * 같은 금액·가까운 날짜(±days)의 매입 결제를 찾아 사용 처리하고 그 결제를 돌려준다.
+ * 찾는 순서: 원래 칸+매입처 일치 → 다른 칸+매입처 일치 → 원래 칸 → 다른 칸. 못 찾으면 null.
+ * text: 통장 내용이나 카드 가맹점명 (매입처 이름 비교용)
  */
-function matchPurchase(payments, date, amount, preferred, days) {
-  var passes = [function (p) { return p.col === preferred; }, function (p) { return p.col !== preferred; }];
+function matchPurchase(payments, date, amount, preferred, days, text) {
+  var named = function (p) { return vendorMatches(p.vendor, text); };
+  var passes = [
+    function (p) { return p.col === preferred && named(p); },
+    function (p) { return p.col !== preferred && named(p); },
+    function (p) { return p.col === preferred; },
+    function (p) { return p.col !== preferred; },
+  ];
   for (var k = 0; k < passes.length; k++) {
     for (var i = 0; i < payments.length; i++) {
       var p = payments[i];
-      if (!p.used && passes[k](p) && p.amount === amount && Math.abs(daysBetween(p.date, date)) <= days) {
+      if (!p.used && p.amount === amount && Math.abs(daysBetween(p.date, date)) <= days && passes[k](p)) {
         p.used = true;
-        return p.col;
+        return p;
       }
     }
   }
-  return '';
+  return null;
 }
 
 function daysBetween(a, b) {
@@ -570,15 +584,16 @@ function reconcile_(ss) {
     PAY_COLS.forEach(function (name) {
       var v = toNumber(r[pur.col[name]]);
       if (!v) return;
-      payments.push({ date: d, amount: v, col: name, used: false });
+      payments.push({ date: d, amount: v, col: name, vendor: r[pur.col['매입처']], used: false });
       if (name === '카드') purCardByDay[ymd(d)] = (purCardByDay[ymd(d)] || 0) + v;
     });
   });
 
-  function purchaseStatus(date, amount, preferred) {
-    var col = matchPurchase(payments, date, amount, preferred, MATCH_DAYS);
-    if (!col) return '';
-    return col === preferred ? '매입 있음' : '매입 있음 (' + col + ' 칸)';
+  function purchaseStatus(date, amount, preferred, text) {
+    var p = matchPurchase(payments, date, amount, preferred, MATCH_DAYS, text);
+    if (!p) return '';
+    var where = p.col === preferred ? '매입 있음' : '매입 있음 (' + p.col + ' 칸)';
+    return vendorMatches(p.vendor, text) ? where : where + ', 매입처 다름: ' + p.vendor;
   }
 
   // 카드
@@ -595,7 +610,7 @@ function reconcile_(ss) {
     if (!cat) return '분류 필요';
     if (NON_EXPENSE.indexOf(cat) >= 0) return '-';
     if (cat !== '매입') return '경비';
-    var found = purchaseStatus(d, amount, '카드');
+    var found = purchaseStatus(d, amount, '카드', r[card.col['가맹점명']]);
     if (found) return found;
     if (cardDay[ymd(d)] && cardDay[ymd(d)] === purCardByDay[ymd(d)]) return '일 합계 일치';
     return '매입 확인 필요';
@@ -636,7 +651,7 @@ function reconcile_(ss) {
     }
     if (!cat) return '분류 필요';
     if (cat === '현금인출') return '현금출납 반영';
-    if (cat === '매입') return purchaseStatus(d, outAmt, '계좌이체') || '매입 확인 필요';
+    if (cat === '매입') return purchaseStatus(d, outAmt, '계좌이체', r[bank.col['내용']]) || '매입 확인 필요';
     return '경비';
   });
   setColumn_(bank, '장부 확인', bankStatus);
@@ -689,6 +704,6 @@ if (typeof module !== 'undefined') {
     parseShinhanSms: parseShinhanSms, parseWooriSms: parseWooriSms,
     parseShinhanExport: parseShinhanExport, parseWooriStatement: parseWooriStatement,
     bankKey: bankKey, cardKey: cardKey, matchByKey: matchByKey, classify: classify,
-    matchPurchase: matchPurchase,
+    matchPurchase: matchPurchase, vendorMatches: vendorMatches,
   };
 }

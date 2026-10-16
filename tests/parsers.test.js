@@ -110,15 +110,18 @@ test('분류규칙은 처음 맞는 것', () => {
   assert.strictEqual(lib.classify('모르는곳', rules), '');
 });
 
-test('매입 대조: 원래 칸을 먼저, 없으면 다른 칸', () => {
+test('매입 대조: 매입처 이름이 맞는 줄을 먼저, 원래 칸을 먼저', () => {
   const d = (m, day) => new Date(2026, m - 1, day);
   const pays = [
-    { date: d(5, 6), amount: 48000, col: '현금', used: false },
-    { date: d(5, 4), amount: 176000, col: '카드', used: false },
-    { date: d(5, 4), amount: 176000, col: '계좌이체', used: false },
+    { date: d(5, 19), amount: 60000, col: '현금', vendor: '아디엘꽃방', used: false },
+    { date: d(5, 19), amount: 60000, col: '현금', vendor: '호남소재', used: false },
+    { date: d(5, 4), amount: 176000, col: '카드', vendor: '조평도자기', used: false },
+    { date: d(5, 4), amount: 176000, col: '계좌이체', vendor: '조평도자기', used: false },
   ];
-  assert.strictEqual(lib.matchPurchase(pays, d(5, 4), 176000, '계좌이체', 3), '계좌이체');
-  assert.strictEqual(lib.matchPurchase(pays, d(5, 6), 48000, '계좌이체', 3), '현금');
-  assert.strictEqual(lib.matchPurchase(pays, d(5, 6), 48000, '계좌이체', 3), '');
-  assert.strictEqual(lib.matchPurchase(pays, d(5, 20), 176000, '카드', 3), '');
+  assert.strictEqual(lib.matchPurchase(pays, d(5, 19), 60000, '계좌이체', 3, '박순자(호남소재)').vendor, '호남소재');
+  assert.strictEqual(lib.matchPurchase(pays, d(5, 4), 176000, '계좌이체', 3, '조용상(조평도자기)').col, '계좌이체');
+  assert.strictEqual(lib.matchPurchase(pays, d(5, 19), 60000, '계좌이체', 3, '김철수').vendor, '아디엘꽃방');
+  assert.strictEqual(lib.matchPurchase(pays, d(5, 19), 60000, '계좌이체', 3, '김철수'), null);
+  assert.ok(lib.vendorMatches('현대데코', '(주)현대데코'));
+  assert.ok(!lib.vendorMatches('', '아무거나'));
 });
