@@ -604,10 +604,13 @@ function syncPurchaseWithdrawals_(ss, bank) {
   });
   if (!todo.length) return;
 
-  var last = lastDataRow_(pur, '날짜') - 1; // 데이터 행 수
-  var rows = pur.rows.slice(0, last).map(function (r) {
-    var d = asDate_(r[pur.col['날짜']]);
-    return { date: d ? ymd(d) : '', atm: r[pur.col['매입처']] === ATM_LABEL };
+  // 날짜를 비워 둔 줄(위 날짜와 같은 날)이 있으므로 아무 칸이나 채워진 마지막 줄까지 본다.
+  var last = Math.max.apply(null, ['날짜', '매입처', '현금', '카드', '계좌이체', '품목', '인출액']
+    .filter(function (n) { return n in pur.col; })
+    .map(function (n) { return lastDataRow_(pur, n); })) - 1; // 데이터 행 수
+  var dates = purchaseDates_(pur);
+  var rows = pur.rows.slice(0, last).map(function (r, i) {
+    return { date: dates[i] ? ymd(dates[i]) : '', atm: r[pur.col['매입처']] === ATM_LABEL };
   });
   todo.forEach(function (w) {
     var idx = withdrawalInsertIndex(rows, ymd(w.date));
@@ -632,6 +635,16 @@ function asDate_(v) {
   return parseExportDate(v, new Date());
 }
 
+/** 날짜 칸이 빈 줄은 위 줄의 날짜를 이어받는다 (매입 탭 '날짜(자동)' 열과 같은 규칙). */
+function fillDownDates(dates) {
+  var cur = null;
+  return dates.map(function (d) { if (d) cur = d; return cur; });
+}
+
+function purchaseDates_(pur) {
+  return fillDownDates(pur.rows.map(function (r) { return asDate_(r[pur.col['날짜']]); }));
+}
+
 function reconcile_(ss) {
   var sales = table_(ss.getSheetByName(SHEETS.sales));
   var pur = table_(ss.getSheetByName(SHEETS.purchase));
@@ -640,8 +653,9 @@ function reconcile_(ss) {
 
   // 매입: 결제 칸(현금/카드/계좌이체)별 금액. 계좌이체를 현금 칸에 적는 경우가 있어 모든 칸을 함께 본다.
   var payments = [], purCardByDay = {};
-  pur.rows.forEach(function (r) {
-    var d = asDate_(r[pur.col['날짜']]);
+  var purDates = purchaseDates_(pur);
+  pur.rows.forEach(function (r, i) {
+    var d = purDates[i];
     if (!d) return;
     PAY_COLS.forEach(function (name) {
       var v = toNumber(r[pur.col[name]]);
@@ -767,6 +781,6 @@ if (typeof module !== 'undefined') {
     parseShinhanExport: parseShinhanExport, parseWooriStatement: parseWooriStatement,
     bankKey: bankKey, cardKey: cardKey, matchByKey: matchByKey, classify: classify,
     matchPurchase: matchPurchase, vendorMatches: vendorMatches,
-    withdrawalInsertIndex: withdrawalInsertIndex,
+    withdrawalInsertIndex: withdrawalInsertIndex, fillDownDates: fillDownDates,
   };
 }

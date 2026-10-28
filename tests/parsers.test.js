@@ -126,6 +126,11 @@ test('매입 대조: 매입처 이름이 맞는 줄을 먼저, 원래 칸을 먼
   assert.ok(!lib.vendorMatches('', '아무거나'));
 });
 
+test('매입 날짜 칸이 비면 위 날짜를 이어받음', () => {
+  const a = new Date(2026, 9, 1), b = new Date(2026, 9, 2);
+  assert.deepStrictEqual(lib.fillDownDates([null, a, null, null, b, null]), [null, a, a, a, b, b]);
+});
+
 test('현금 인출 행은 그 날짜 묶음의 맨 위에', () => {
   const rows = [
     { date: '2026-09-07', atm: false },
