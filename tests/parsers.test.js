@@ -126,6 +126,23 @@ test('매입 대조: 매입처 이름이 맞는 줄을 먼저, 원래 칸을 먼
   assert.ok(!lib.vendorMatches('', '아무거나'));
 });
 
+test('신한 ATM 문자는 이름 줄이 없음 → 현금인출/현금입금', () => {
+  const out = lib.parseShinhanSms('[Web발신]\n신한10/27 08:30\n110-***-123456\n출금     300,000', NOW);
+  const inn = lib.parseShinhanSms('[Web발신]\n신한10/27 09:19\n110-***-123456\n입금     133,000', NOW);
+  assert.strictEqual(out.out, 300000);
+  assert.strictEqual(out.memo, '');
+  assert.strictEqual(inn.in, 133000);
+  assert.strictEqual(lib.atmCategory(out.out, out.in), '현금인출');
+  assert.strictEqual(lib.atmCategory(inn.out, inn.in), '현금입금');
+});
+
+test('저녁 이후 인출은 다음 날 시장', () => {
+  const d = new Date(2026, 8, 20);
+  assert.strictEqual(lib.ymd(lib.marketDate(d, '23:15')), '2026-09-21');
+  assert.strictEqual(lib.ymd(lib.marketDate(d, '08:30')), '2026-09-20');
+  assert.strictEqual(lib.ymd(lib.marketDate(new Date(2026, 11, 31), '23:00')), '2027-01-01');
+});
+
 test('매입 날짜 칸이 비면 위 날짜를 이어받음', () => {
   const a = new Date(2026, 9, 1), b = new Date(2026, 9, 2);
   assert.deepStrictEqual(lib.fillDownDates([null, a, null, null, b, null]), [null, a, a, a, b, b]);

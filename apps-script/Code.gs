@@ -368,6 +368,21 @@ function daysBetween(a, b) {
 }
 
 var ATM_LABEL = '현금 인출 (ATM)';
+var NIGHT_MARKET_FROM = '18:00'; // 이 시각 이후 인출은 밤 시장(23:30 개장)용이라 다음 날 매입으로 본다
+
+/** 적요·내용이 모두 빈 통장 거래(ATM 문자)의 분류. */
+function atmCategory(out, inn) {
+  if (toNumber(out) > 0) return '현금인출';
+  if (toNumber(inn) > 0) return '현금입금';
+  return '';
+}
+
+/** 인출한 현금을 쓰는 시장 날짜. 저녁 이후 인출은 다음 날. */
+function marketDate(date, time) {
+  var d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (String(time || '') >= NIGHT_MARKET_FROM) d.setDate(d.getDate() + 1);
+  return d;
+}
 
 /**
  * 매입 탭에서 현금 인출 행을 넣을 위치(데이터 행 0부터).
@@ -549,7 +564,13 @@ function applyRules_(ss) {
       var cur = row[t.col['분류']];
       if (cur) return cur;
       var hasData = spec[1].some(function (n) { return row[t.col[n]]; });
-      if (!hasData) return '';
+      if (!hasData) {
+        if (spec[0] !== SHEETS.bank) return '';
+        // 신한 ATM 입출금 문자에는 이름 줄이 없다.
+        var atm = atmCategory(row[t.col['출금']], row[t.col['입금']]);
+        if (atm) changed = true;
+        return atm;
+      }
       var text = spec[1].map(function (n) { return row[t.col[n]]; }).join(' ');
       var cat = classify(text, rules);
       if (!cat && spec[0] === SHEETS.bank && toNumber(row[t.col['입금']]) > 0) cat = '매출입금';
@@ -613,16 +634,19 @@ function syncPurchaseWithdrawals_(ss, bank) {
     return { date: dates[i] ? ymd(dates[i]) : '', atm: r[pur.col['매입처']] === ATM_LABEL };
   });
   todo.forEach(function (w) {
-    var idx = withdrawalInsertIndex(rows, ymd(w.date));
+    var day = marketDate(w.date, w.time);
+    var idx = withdrawalInsertIndex(rows, ymd(day));
     var rowNum = idx + 2;
     if (idx < rows.length) pur.sheet.insertRowBefore(rowNum);
     var put = function (name, v) { pur.sheet.getRange(rowNum, pur.col[name] + 1).setValue(v); };
-    put('날짜', w.date);
+    put('날짜', day);
     put('매입처', ATM_LABEL);
-    if ('메모' in pur.col) put('메모', '통장 자동 ' + w.time);
+    var memo = '통장 자동 ' + (w.date.getMonth() + 1) + '/' + w.date.getDate() + ' ' + w.time;
+    if (ymd(day) !== ymd(w.date)) memo += ' (밤 시장)';
+    if ('메모' in pur.col) put('메모', memo);
     put('인출액', w.amount);
     put('키', w.key);
-    rows.splice(idx, 0, { date: ymd(w.date), atm: true });
+    rows.splice(idx, 0, { date: ymd(day), atm: true });
   });
 }
 
@@ -782,5 +806,6 @@ if (typeof module !== 'undefined') {
     bankKey: bankKey, cardKey: cardKey, matchByKey: matchByKey, classify: classify,
     matchPurchase: matchPurchase, vendorMatches: vendorMatches,
     withdrawalInsertIndex: withdrawalInsertIndex, fillDownDates: fillDownDates,
+    atmCategory: atmCategory, marketDate: marketDate,
   };
 }
